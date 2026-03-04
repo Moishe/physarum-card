@@ -67,17 +67,18 @@ const params = {
   lookDistance: 15,
   dirMomentum: 0.1,
   dirRandom: 0.3,
-  maxSpeed: 2.0,
-  minSpeed: 0.5,
-  intensity: 0.5,
+  maxSpeed: 0.2,
+  minSpeed: 0.0,
+  intensity: 0.1,
   hsvAngles: 0,
   hsvOffset: 0,
   fadeDec: 0.005,
-  blurMult: 0,
+  blurMult: 0.1,
   blurInterval: 4,
   spawnOffset: 5.0,
-  epochsPerSecond: 24,
-  stepsPerEpoch: 8,
+  density: 1.0,
+  epochsPerSecond: 20,
+  stepsPerEpoch: 1,
 };
 
 // Map slider IDs to params keys
@@ -96,6 +97,7 @@ const sliderMap = [
   { id: 'blur-mult',     key: 'blurMult',     integer: false },
   { id: 'blur-interval', key: 'blurInterval', integer: true },
   { id: 'spawn-offset',  key: 'spawnOffset',  integer: false },
+  { id: 'density',       key: 'density',      integer: false },
 ];
 
 // Wire sliders to params
@@ -188,7 +190,7 @@ async function loadEvents() {
 function spawnAndUpload(device, agentBuffer, rng, cpuAgentData, agentHomeRadius, currentAgentCount, events, currentDayIndex, totalDays) {
   const prevCount = currentAgentCount;
   const newCount = spawnAgentsForEvents(
-    rng, { minSpeed: params.minSpeed, maxSpeed: params.maxSpeed },
+    rng, { minSpeed: params.minSpeed, maxSpeed: params.maxSpeed, density: params.density },
     cpuAgentData, agentHomeRadius,
     currentAgentCount, events, currentDayIndex, totalDays
   );
@@ -370,8 +372,8 @@ async function init() {
         {
           format: 'rgba8unorm',
           blend: {
-            color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
           },
         },
       ],

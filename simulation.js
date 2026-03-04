@@ -43,6 +43,31 @@ export function hueToRgb(hue) {
   return { r, g, b };
 }
 
+// Color palette inspired by Hilma af Klint's concentric circles
+export const PALETTE = [
+  { r: 0.85, g: 0.42, b: 0.35 },  // coral red (center)
+  { r: 0.91, g: 0.65, b: 0.28 },  // warm orange
+  { r: 0.93, g: 0.83, b: 0.35 },  // golden yellow
+  { r: 0.70, g: 0.80, b: 0.38 },  // yellow-green
+  { r: 0.48, g: 0.70, b: 0.42 },  // muted green
+  { r: 0.55, g: 0.68, b: 0.82 },  // cornflower blue
+  { r: 0.35, g: 0.48, b: 0.68 },  // steel blue
+  { r: 0.28, g: 0.35, b: 0.55 },  // deep blue
+  { r: 0.72, g: 0.60, b: 0.72 },  // muted lavender
+  { r: 0.62, g: 0.58, b: 0.55 },  // warm gray
+];
+
+export function docIdToColor(docId) {
+  const index = Math.abs(djb2(docId)) % PALETTE.length;
+  return PALETTE[index];
+}
+
+export function commentColor(docId) {
+  // Comments use the next palette color from the base document color
+  const index = (Math.abs(djb2(docId)) + 1) % PALETTE.length;
+  return PALETTE[index];
+}
+
 export function groupEventsByHour(events) {
   if (events.length === 0) return [];
   const hourMap = new Map();
@@ -120,17 +145,19 @@ export function spawnAgentsForEvents(rng, params, cpuAgentData, agentHomeRadius,
     ? (currentDayIndex / totalDays) * MAX_RADIUS
     : 0;
 
+  const density = params.density || 1.0;
+  const radiusScale = totalDays > 0 ? 1 + (currentDayIndex / totalDays) : 1;
+
   for (const event of events) {
     const eventType = event.event_type || event.type || 'create';
-    const spawnCount = SPAWN_COUNTS[eventType] || 5;
+    const baseCount = SPAWN_COUNTS[eventType] || 5;
+    const spawnCount = Math.round(baseCount * density * radiusScale);
     const actualSpawn = Math.min(spawnCount, MAX_AGENTS - count);
     if (actualSpawn <= 0) break;
 
-    let hue = docIdToHue(event.document_id);
-    if (eventType === 'comment') {
-      hue = (hue + 0.07) % 1.0;
-    }
-    const { r, g, b } = hueToRgb(hue);
+    const { r, g, b } = eventType === 'comment'
+      ? commentColor(event.document_id)
+      : docIdToColor(event.document_id);
 
     const rotationOffset = rng() * Math.PI * 2;
 

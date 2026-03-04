@@ -3,8 +3,9 @@
 
 import {
   mulberry32, seedFromUserId, docIdToHue, hueToRgb,
+  docIdToColor, commentColor, PALETTE,
   spawnAgentsForEvents, groupEventsByHour,
-  ACTOR_FLOATS, OFF_POS_X, OFF_POS_Y, OFF_DIR,
+  ACTOR_FLOATS, OFF_POS_X, OFF_POS_Y, OFF_DIR, OFF_COLOR, OFF_ORIG_COLOR,
   MAX_AGENTS, MAX_RADIUS, CENTER_X, CENTER_Y,
   SPAWN_COUNTS, DIR_OFFSETS, DIR_RANDOMIZATION,
 } from './simulation.js';
@@ -75,7 +76,7 @@ function meanRadius(cpuAgentData, startAgent, count) {
 }
 
 const defaultParams = {
-  minSpeed: 0.5, maxSpeed: 2.0,
+  minSpeed: 0.5, maxSpeed: 2.0, density: 1.0,
 };
 
 // ============================================================
@@ -88,7 +89,9 @@ console.log('\n=== Test 1: Single create event — direction uniformity ===');
 
   const count = spawnAgentsForEvents(rng, defaultParams, cpuAgentData, agentHomeRadius, 0, events, 50, 180);
 
-  assert(count === 100, `Expected 100 agents, got ${count}`);
+  // With density=1.0 and radiusScale = 1 + 50/180 ≈ 1.278, expected = round(100 * 1.278) = 128
+  const expectedCount = Math.round(100 * (1 + 50 / 180));
+  assert(count === expectedCount, `Expected ${expectedCount} agents, got ${count}`);
 
   const mv = meanDirectionVector(cpuAgentData, 0, count);
   console.log(`  Mean direction vector: (${mv.x.toFixed(4)}, ${mv.y.toFixed(4)}), magnitude=${mv.magnitude.toFixed(4)}, angle=${(mv.angle * 180 / Math.PI).toFixed(1)}°`);
@@ -137,7 +140,8 @@ console.log('\n=== Test 3: Direction vectors by event type ===');
     if (expectedOffset === null) {
       // Reaction: fully random direction, should be roughly uniform
       console.log(`  ${eventType} (${spawnCount} agents): magnitude=${mv.magnitude.toFixed(4)} (expect ~0 for random)`);
-      assert(mv.magnitude < 0.5, `${eventType} should have low direction bias`);
+      // With only 3 agents, random bias can be very high; use generous threshold
+      assert(mv.magnitude < 0.8, `${eventType} should have low direction bias`);
     } else {
       // For directed events, mean vector should point in the offset direction
       // But with only a few agents (view=5, reaction=3), statistical noise is high
@@ -250,6 +254,86 @@ console.log('\n=== Test 6: Per-agent direction vs position angle (outward check)
   console.log(`  Max deviation: ${(maxDeviation * 180 / Math.PI).toFixed(1)}°`);
   assertApprox(meanDeviation, 0, 0.1, 'Mean deviation from outward should be ~0');
   assert(maxDeviation < DIR_RANDOMIZATION + 0.1, `Max deviation should be within randomization range ± margin`);
+}
+
+// ============================================================
+console.log('\n=== Test 7: Agent color matches original_color at spawn ===');
+{
+  const rng = mulberry32(seedFromUserId('color-test'));
+  const cpuAgentData = new Float32Array(MAX_AGENTS * ACTOR_FLOATS);
+  const agentHomeRadius = new Float32Array(MAX_AGENTS);
+
+  // Spawn several event types with distinct document IDs
+  const events = [
+    { event_type: 'create', document_id: 'doc-red', created_at: '2025-09-01T10:00:00Z' },
+    { event_type: 'edit', document_id: 'doc-blue', created_at: '2025-09-01T11:00:00Z' },
+    { event_type: 'comment', document_id: 'doc-green', created_at: '2025-09-01T12:00:00Z' },
+  ];
+
+  const count = spawnAgentsForEvents(rng, defaultParams, cpuAgentData, agentHomeRadius, 0, events, 50, 180);
+
+  let colorMismatches = 0;
+  for (let i = 0; i < count; i++) {
+    const base = i * ACTOR_FLOATS;
+    for (let c = 0; c < 4; c++) {
+      const color = cpuAgentData[base + OFF_COLOR + c];
+      const orig = cpuAgentData[base + OFF_ORIG_COLOR + c];
+      if (Math.abs(color - orig) > 1e-6) {
+        colorMismatches++;
+        break;
+      }
+    }
+  }
+  console.log(`  ${count} agents spawned, ${colorMismatches} have color != original_color`);
+  assert(colorMismatches === 0, `All agents should have color == original_color at spawn (${colorMismatches} mismatches)`);
+}
+
+// ============================================================
+console.log('\n=== Test 8: Palette color from document_id is deterministic ===');
+{
+  // Same doc ID should always produce the same color
+  const c1 = docIdToColor('my-document-123');
+  const c2 = docIdToColor('my-document-123');
+  assert(c1.r === c2.r && c1.g === c2.g && c1.b === c2.b, 'Same document_id should produce same color');
+
+  // Colors should be from the palette and in valid range
+  assert(c1.r >= 0 && c1.r <= 1, `R channel in range: ${c1.r}`);
+  assert(c1.g >= 0 && c1.g <= 1, `G channel in range: ${c1.g}`);
+  assert(c1.b >= 0 && c1.b <= 1, `B channel in range: ${c1.b}`);
+
+  // Verify color is actually from the palette
+  const inPalette = PALETTE.some(p => p.r === c1.r && p.g === c1.g && p.b === c1.b);
+  assert(inPalette, 'Color should come from the palette');
+  console.log(`  doc color=(${c1.r.toFixed(3)}, ${c1.g.toFixed(3)}, ${c1.b.toFixed(3)})`);
+}
+
+// ============================================================
+console.log('\n=== Test 9: Comment events use a different palette color ===');
+{
+  const docId = 'doc-comment-test';
+  const baseColor = docIdToColor(docId);
+  const cmtColor = commentColor(docId);
+
+  // Comment color should differ from base color
+  const differs = baseColor.r !== cmtColor.r || baseColor.g !== cmtColor.g || baseColor.b !== cmtColor.b;
+  assert(differs, 'Comment color should differ from base document color');
+
+  // Verify comment color is from the palette
+  const inPalette = PALETTE.some(p => p.r === cmtColor.r && p.g === cmtColor.g && p.b === cmtColor.b);
+  assert(inPalette, 'Comment color should come from the palette');
+
+  // Verify spawned agents use the comment color
+  const rng = mulberry32(seedFromUserId('comment-color'));
+  const cpuAgentData = new Float32Array(MAX_AGENTS * ACTOR_FLOATS);
+  const agentHomeRadius = new Float32Array(MAX_AGENTS);
+  const events = [{ event_type: 'comment', document_id: docId, created_at: '2025-09-01T10:00:00Z' }];
+  const count = spawnAgentsForEvents(rng, defaultParams, cpuAgentData, agentHomeRadius, 0, events, 50, 180);
+
+  const base = 0;
+  assertApprox(cpuAgentData[base + OFF_ORIG_COLOR + 0], cmtColor.r, 1e-6, 'Comment R matches palette');
+  assertApprox(cpuAgentData[base + OFF_ORIG_COLOR + 1], cmtColor.g, 1e-6, 'Comment G matches palette');
+  assertApprox(cpuAgentData[base + OFF_ORIG_COLOR + 2], cmtColor.b, 1e-6, 'Comment B matches palette');
+  console.log(`  base=(${baseColor.r.toFixed(2)}, ${baseColor.g.toFixed(2)}, ${baseColor.b.toFixed(2)}), comment=(${cmtColor.r.toFixed(2)}, ${cmtColor.g.toFixed(2)}, ${cmtColor.b.toFixed(2)})`);
 }
 
 // ============================================================

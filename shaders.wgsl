@@ -209,11 +209,9 @@ fn compute_main(@builtin(global_invocation_id) gid: vec3u) {
   // Store RNG state for next frame
   actors[id].random_val = rand(&rng_state);
 
-  // Blend color with pheromone
-  actors[id].color = vec4f(
-    hsv_mix(pheromone_at_loc.rgb, actors[id].color.rgb, colony.intensity),
-    colony.intensity
-  );
+  // Set color to original — pheromone deposit strength is controlled by alpha
+  // (the particle render pass uses src-alpha blending)
+  actors[id].color = vec4f(actors[id].original_color.rgb, colony.intensity);
 }
 
 // ========== Render shaders ==========
